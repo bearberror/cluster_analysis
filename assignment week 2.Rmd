@@ -1,0 +1,157 @@
+---
+title: 'Assignment week 2: Cluster Analysis'
+author: "Rawinan Soma"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+|   *Cluster analysis* is the unsupervised machine learning algorithm for classified unknown data into clusters that have similarities and distinguish between other clusters. This assignment is one of the example for understanding clustering methods like k-means algorithm, and other interesting method. For now, I'm going to use "processed.cleveland.data" dataset about heart disease for clustering.
+
+|   I'm starting with setting your working directory and loading the dataset into your computer.\
+***I have to convert provide data file into .txt file by notepad, for importing purpose.***
+```{r message=FALSE, warning=FALSE}
+setwd("D:/Work-BHI/ML and Data mining/assignment2")
+library(readr)
+data <- read_csv("cleveland.txt", col_names = FALSE)
+```
+
+|   Here are the first 5 rows of your dataset.
+```{r}
+head(data)
+```
+
+|   You'll see our dataset has no columns name LOL, but don't worry we find the metadata in this link <http://archive.ics.uci.edu/ml/datasets/Heart+Disease> and replace the columns name
+``` {r message= FALSE, results= FALSE, warning= FALSE}
+library(tidyverse)
+old_colNames <- colnames(data)
+new_colNames <- c('age', 'sex', 'cp', 'trestbp', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num')
+data <- data %>%
+  rename_at(vars(old_colNames), ~new_colNames)
+```
+
+|   The dataset should have the columns name by now\
+
+```{r}
+head(data)
+```
+
+
+|   The cluster analysis is the unsupervised learning. So, we don't need the class attribute or "num" column
+```{r}
+data <- data %>% select(-num)
+```
+
+
+|   Before clustering, we should make sure the data is clean enough for entering the model such as no missing value, no outlier.
+```{r}
+summary(data)
+```
+
+
+|   The dataset is clean enough for analysis but, I will rename the columns for better understanding.
+```{r}
+### change variables name
+data <- data %>%
+  rename(chest_pain_type = cp,
+         rest_bp = trestbp,
+         max_hr = thalach,
+         exercise_angina = exang,
+         stdep = oldpeak,
+         num_vessel = ca)
+### add index (ID) column
+data <- data %>%
+  mutate(id = row_number()) %>%
+  relocate(id)
+### Make new table name "cleveland_kmm"
+cleveland_kmm <- data
+```
+
+
+|   *K-mean* is one of methods for clustering by divide all data point into *k* groups. At first, the centroids of this dataset will randomly generates. After that, the distance between centroids to all data point will be calculated and assigned data point to cluster that has the shortest distance, then new centroid will be evaluated from mean of the cluster objects, At last, object will be reassigned by distance of the new centroid. This process will iterated until the centroid stopped moving or some criteria.
+
+```{r error=TRUE}
+### Let us apply k = 3 clusters
+set.seed(99)
+kmeans(cleveland_kmm, centers = 3)
+```
+
+
+|   No!!, you got errors. I found some explanation in Stackoverflow tell that there was some of columns are not numeric type and some of them has NA. So, I tried to change them.
+
+```{r}
+cleveland_kmm <- cleveland_kmm %>%
+  mutate(thal = replace(thal, thal =='3.0', 3)) %>%
+  mutate(thal = replace(thal, thal =='6.0', 6)) %>%
+  mutate(thal = replace(thal, thal =='7.0', 7)) %>%
+  mutate(thal = replace(thal, thal =='?', 3))
+
+cleveland_kmm <- cleveland_kmm %>%
+  mutate(num_vessel = replace(num_vessel, num_vessel =='?','0')) %>%
+  mutate(num_vessel = as.numeric(num_vessel))
+
+cleveland_kmm <- cleveland_kmm %>%
+  mutate(num_vessel = as.numeric(num_vessel)) %>%
+  mutate(thal = as.numeric(thal))
+```
+
+|   And try again
+
+```{r}
+set.seed(99)
+kmeans(cleveland_kmm[,-1], centers = 3)
+```
+
+
+|   You'll find this data divide into 3 clusters of 133, 109, and 61 points. In details, group 2 has lower average age, blood pressure, and cholesterol level. This cluster analysis is quite explainable between clusters with btw_ss/total_ss = *56.6%*
+
+
+|   The *k* is the number of appropriate cluster to divide the data point which considered from clustering pattern, explainable cluster, and elbow method. The elbow method looks at the percentage of variance explained as a function of the number of clusters: One should choose a number of clusters so that adding another cluster did not give much better model.
+
+```{r}
+set.seed(99)
+k_max <- 15
+wss <- sapply(1:k_max,
+              function(k){kmeans(cleveland_kmm, 
+                                 k, nstart=50,
+                                 iter.max = 15 )$tot.withinss})
+plot(1:k_max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+```
+
+|   From the elbow plot, we'll see significant reduction of variance start at k = 4. So, we'll select 4 cluster for next analysis. This analysis better explanation with btw_ss/total_ss = *62.5%*
+
+```{r}
+kmeans(cleveland_kmm[,-1], centers = 4)
+```
+
+
+|   In the recent example, you will be curious about average value of sex: it means half man half woman? *K-means Clustering* has some weakness, it require euclidean distance for calculate disimilarity. So, it cannot clustering the dataset that contains both numerical and categorical data For example, I tried to run k-means with mixed dataset.
+
+```{r error=TRUE}
+cleveland_mix <- data %>%
+  mutate(across(c(3,4,7,8,10,12,14), ~as.factor(.)))
+
+kmeans(cleveland_mix[,-1], centers = 4)
+```
+
+|   Therefore, we need another clustering algorithm for mixed dataset. Partitioning around medoids (PAM) is the one of solution, it required dissimilarity matrix for clustering instead of euclidean distance.
+
+```{r}
+cleveland_mix <- data %>%
+  mutate(thal = replace(thal, thal =='?', 3)) %>%
+  mutate(num_vessel = replace(num_vessel, num_vessel =='?','0')) %>%
+  mutate(num_vessel = as.numeric(num_vessel)) %>%
+  mutate(across(c(3,4,7,8,10,12,14), ~as.character(.)))
+
+set.seed(99)
+library(cluster)
+pam(cleveland_mix[,-1], k=4, diss = FALSE)
+```
+|   Lastly, here are the summary of characteristic for each cluster from PAM method
+  
